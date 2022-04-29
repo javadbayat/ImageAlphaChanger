@@ -1,0 +1,232 @@
+<public:component tagName="thread" literalContent=true>
+    <public:method name="start" />
+    <public:method name="terminate" />
+    <public:method name="getExitCode" />
+    <public:method name="getTHID" />
+    <public:method name="resume" />
+    <public:method name="getProcess" />
+    <public:method name="getCreationDate" />
+    <public:method name="getExitDate" />
+    
+    <public:property name="slanguage" internalname="language" />
+
+    <public:event id="threadExitEvent" name="onbeforeexit" />
+    
+    <public:attach event="ondocumentready" for="element" onevent="initWBC()" />
+    <public:attach event="oncontentready" for="element" onevent="initElem()" />
+    <public:attach event="onunload" for="window" onevent="cleanUpThreads()" />
+</public:component>
+<script language="jscript">
+String.prototype.startsWith = new Function("str", "return(this.substr(0,str.length) === str);");
+String.prototype.endsWith = new Function("suffix", "return(this.substr(this.length - suffix.length) === suffix);");
+
+var threadsInfo = new ActiveXObject("Scripting.Dictionary");
+var fso = new ActiveXObject("Scripting.FileSystemObject");
+var wshShell = new ActiveXObject("WScript.Shell");
+var wbc;
+var signature = Math.round(Math.random() * 0xFFFFFF);
+var baseTMID = 1;
+var language = "jscript";
+var services = null;
+
+var TF_SUSPENDED        = 1;
+var TF_DEBUGABLE        = 2;
+
+var TEM_EXEC_COMPLETED  = 0;
+var TEM_EXEC_HALTED     = 1;
+var TEM_KILLED          = 2;
+
+var TL_JSCRIPT = 1;
+var TL_VBSCRIPT = 2;
+
+function getCompFolder()
+{
+    return document.URL.substring(7, document.URL.lastIndexOf("\\") + 1);
+}
+
+function initWBC()
+{
+    var doc = element.document;
+    wbc = doc.getElementById("threadingPort");
+    if (!wbc)
+    {
+        // Taking a look at this part of the code still reminds me of Omegastripes's post
+        // on Stack Overflow, which illustrated how to use WSH VBS to dynamically create an
+        // HTA window, and receive its window object through a Web Browser Control. Here is
+        // its link:
+        // https://stackoverflow.com/questions/47100085/creating-multi-select-list-box-in-vbscript/47111556#47111556
+        // Thanks a lot to his post, I'm using a similar mechanism in this component to
+        // transfer thread data (like the thread template element, the extra parameter,
+        // the thread flags, .etc) from the mshta.exe process (The HTA process) to the
+        // wscript.exe process (the underlying process of the thread) via a dedicated
+        // Web Browser Control (WBC).
+        
+        wbc = doc.createElement("object");
+        wbc.id = "threadingPort";
+        wbc.classid = "clsid:8856F961-340A-11D0-A96B-00C04FD705A2";
+        wbc.width = wbc.height = 1;
+        doc.body.appendChild(wbc);
+    }
+    
+    wbc.PutProperty("app" + signature, threadsInfo);
+}
+
+function initElem()
+{
+    if (element.src)
+    {
+        var ts = fso.OpenTextFile(getCompFolder() + element.src);
+        element.innerHTML = ts.ReadAll();
+        ts.Close();
+    }
+    else
+    {
+        var code = element.innerHTML.toLowerCase().replace(/\s/g, "");
+        if (code.startsWith("<" + "script>") && code.endsWith("</" + "script>"))
+            element.innerHTML = element.innerHTML.replace("<" + "script>", "").replace("</" + "script>", "");
+    }
+}
+
+function start(arg, initiallySuspended, debugable)
+{
+    wbc.RegisterAsBrowser = true;
+    
+    var tmid = baseTMID++;
+    threadsInfo(tmid) = {arg:arg, element:element, tmid:tmid, flags:0, script:null, creationDate:new Date, exitDate:null, indicateExit:thread_ie};
+    
+    if (initiallySuspended)
+        threadsInfo(tmid).flags |= TF_SUSPENDED;
+    
+    if (debugable)
+        threadsInfo(tmid).flags |= TF_DEBUGABLE;
+    
+    switch (language.toLowerCase())
+    {
+    case "jscript" :
+    case "javascript" :
+        threadsInfo(tmid).language = TL_JSCRIPT;
+        var job = "RunJSThread";
+        break;
+    case "vbscript" :
+        threadsInfo(tmid).language = TL_VBSCRIPT;
+        var job = "RunVBSThread";
+        break;
+    default :
+        throw new Error("Unsupported thread language");
+    }
+
+    var hostPath = getCompFolder() + "thread_host.wsf";
+    threadsInfo(tmid).exec = wshShell.Exec("wscript" + ' "' + hostPath + '" //job:' + job + (debugable ? " //D " : " ") + signature + " " + tmid);
+    
+    return tmid;
+}
+
+function thread_ie(exitMode)
+{
+    var e = document.createEventObject();
+    e.tmid = this.tmid;
+    e.exitMode = exitMode ? exitMode : TEM_EXEC_COMPLETED;
+    threadExitEvent.fire(e);
+    
+    this.exitDate = new Date;
+}
+
+function terminate(tmid)
+{
+    if (threadsInfo.Exists(tmid))
+    {
+        threadsInfo(tmid).indicateExit(TEM_KILLED);
+        threadsInfo(tmid).exec.Terminate();
+        threadsInfo.Remove(tmid);
+    }
+    else
+        throw new Error("Thread does not exist");
+}
+
+function getExitCode(tmid)
+{
+    if (threadsInfo.Exists(tmid))
+    {
+        if (threadsInfo(tmid).exec.Status)
+            return threadsInfo(tmid).exec.ExitCode;
+        
+        return 259;
+    }
+    else
+        throw new Error("Thread does not exist");
+}
+
+function getTHID(tmid)
+{
+    if (threadsInfo.Exists(tmid))
+        return threadsInfo(tmid).exec.ProcessID;
+    else
+        throw new Error("Thread does not exist");
+}
+
+function resume(tmid)
+{
+    if (threadsInfo.Exists(tmid))
+    {
+        if (threadsInfo(tmid).flags & TF_SUSPENDED)
+            threadsInfo(tmid).flags -= TF_SUSPENDED;
+        else
+            throw new Error("Thread is already running");
+    }
+    else
+        throw new Error("Thread does not exist");
+}
+
+function getProcess(tmid)
+{
+    if (getExitCode(tmid) != 259)
+        return null;
+    
+    var thid = getTHID(tmid);
+    
+    if (!services)
+        services = GetObject("winmgmts:");
+    
+    var query = "SELECT * FROM Win32_Process WHERE ProcessID = " + thid;
+    var col = services.ExecQuery(query);
+    if (col.Count)
+        return (new Enumerator(col)).item();
+    
+    throw new Error("The Win32_Process instance for the thread not found");
+}
+
+function getCreationDate(tmid)
+{
+    if (threadsInfo.Exists(tmid))
+        return threadsInfo(tmid).creationDate.getVarDate();
+    else
+        throw new Error("Thread does not exist");
+}
+
+function getExitDate(tmid)
+{
+    if (threadsInfo.Exists(tmid))
+    {
+        if (threadsInfo(tmid).exitDate)
+            return threadsInfo(tmid).exitDate.getVarDate();
+        else
+            return null;
+    }
+    else
+        throw new Error("Thread does not exist");
+}
+
+function cleanUpThreads()
+{
+    var arr = (new VBArray(threadsInfo.Items())).toArray();
+    for (var i = 0;i < arr.length;i++)
+    {
+        try
+        {
+            arr[i].exec.Terminate();
+        }
+        catch (e) {}
+    }
+}
+</script>
+<body></body>

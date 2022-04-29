@@ -1,0 +1,358 @@
+<html xmlns:t xmlns:fcontrol xmlns:v="urn:schemas-microsoft-com:vml">
+<head>
+<title>Image Alpha Changer</title>
+<hta:application applicationname="Image Alpha Changer" version="1.0" windowstate="maximize" />
+
+<meta name="author" content="Javad Bayat">
+<meta http-equiv="content-type" content="text/html; charset = UTF-8">
+<meta http-equiv="MSThemeCompatible" content="Yes">
+
+<?import namespace="fcontrol" implementation="intbox.htc" ?>
+<?import namespace="t" implementation="omegathread.htc" ?>
+
+<style type="text/css">
+v\:* {
+    behavior: url(#default#VML);
+    display: inline-block;
+}
+
+#fileInputImage {
+    width: 50%;
+}
+
+#operationStatus h1 {
+    font-size: large;
+}
+
+#inputImageBox, #outputImageBox {
+    display: inline;
+    width: 350px;
+    height: 400px;
+    border: 5px groove silver;
+    background-color: white;
+    overflow: auto;
+    padding: 0px;
+}
+
+.ImageLabel {
+    position: absolute;
+    width: 120px;
+    height: 40px;
+    cursor: hand;
+    filter: 
+        progid:DXImageTransform.Microsoft.BasicImage( opacity=0.7 )
+        progid:DXImageTransform.Microsoft.Iris( irisStyle=CIRCLE, duration=2 );
+}
+
+.ImageLabel v\:textbox {
+    font-family: Times;
+    font-weight: bold;
+}
+
+form {
+    background-image: url('bgForm.jpg');
+    padding: 10px;
+    border: 5px double highlight;
+}
+
+button {
+    margin: 3px;
+}
+
+label {
+    color: blue;
+}
+</style>
+
+<script language="jscript">
+var imageBoxWidth = 350, imageBoxHeight = 400;
+var labelLeft = 115, labelTop = 340;
+
+var shell = new ActiveXObject("Shell.Application");
+var fso = new ActiveXObject("Scripting.FileSystemObject");
+var wshShell = new ActiveXObject("WScript.Shell");
+
+var tmid = 0;
+var oif = "";
+var abortionRequest = false;
+
+var TEM_EXEC_HALTED     = 1;
+
+onload = function() {
+    document.mainForm.inputImage.onchange = displayInputImage;
+    document.mainForm.onreset = destroyInputImage;
+    inputImageBox.onscroll = holdImageLabel;
+    inputImageLabel.onmouseover = inputImageLabel.onmouseout = changeLabelOpacity;
+    inputImageLabel.onclick = new Function("launchFile(document.mainForm.inputImage.value);");
+    outputImageBox.onscroll = holdImageLabel;
+    outputImageLabel.onmouseover = outputImageLabel.onmouseout = changeLabelOpacity;
+    outputImageLabel.onclick = new Function("launchFile(oif);");
+    document.mainForm.btnModify.onclick = startModification;
+    document.all.btnAbort.onclick = abortModification;
+    alphaChangerThread.onbeforeexit = indicateAbortion;
+};
+
+document.onselectstart = document.oncontextmenu = function() {
+    var srcElem = event.srcElement;
+    
+    if ((srcElem.tagName.toLowerCase() == "input") && (srcElem.type.toLowerCase() == "text"))
+        return true;
+    
+    if (srcElem.tagName.toLowerCase() == "textarea")
+        return true;
+    
+    if (srcElem.tagName.toLowerCase() == "intbox")
+        return true;
+    
+    return false;
+};
+
+function displayInputImage() {
+    var imageFileName = this.value;
+    
+    try {
+        var imageFile = new ActiveXObject("WIA.ImageFile");
+        imageFile.LoadFile(imageFileName);
+    }
+    catch (e) {
+        alert(
+            "The specified image could not be loaded via Windows Image Acquisition (WIA) library. There are two likely causes:\n" +
+            "1. You are using an old version of Microsoft Windows. Please note that this app requires Windows Vista or later to work properly.\n" +
+            "2. The specified image file is corrupted, or is in an unsupported format. The image formats supported by this app are BMP, JPEG, GIF, PNG, and TIFF.\n" +
+            "\nTechnical info:\n" + e.message
+        );
+        
+        this.form.reset();
+        return;
+    }
+    
+    var w, h;
+    var maxWidth = imageBoxWidth - 30;
+    if (imageFile.Width > maxWidth) {
+        w = maxWidth;
+        h = Math.floor(maxWidth / imageFile.Width * imageFile.Height);
+    }
+    else {
+        w = imageFile.Width;
+        h = imageFile.Height;
+    }
+    
+    inputImageView.src = imageFileName;
+    inputImageView.style.width = w + "px";
+    inputImageView.style.height = h + "px";
+    inputImageView.exp_width = w;
+    inputImageView.exp_height = h;
+    
+    if (inputImageLabel.style.visibility == "hidden") {
+        inputImageLabel.filters[1].apply();
+        inputImageLabel.style.visibility = "visible";
+        inputImageLabel.filters[1].play();
+    }
+}
+
+function destroyInputImage() {
+    var elem = document.createElement("v:image");
+    elem.id = "inputImageView";
+    inputImageView.replaceNode(elem);
+    inputImageLabel.style.visibility = "hidden";
+}
+
+function displayOutputImage() {
+    outputImageView.src = oif;
+    outputImageView.style.width = inputImageView.exp_width + "px";
+    outputImageView.style.height = inputImageView.exp_height + "px";
+    
+    outputImageLabel.filters[1].apply();
+    outputImageLabel.style.visibility = "visible";
+    outputImageLabel.filters[1].play();
+}
+
+function destroyOutputImage() {
+    if (oif) {
+        var elem = document.createElement("v:image");
+        elem.id = "outputImageView";
+        outputImageView.replaceNode(elem);
+        outputImageLabel.style.visibility = "hidden";
+        
+        oif = "";
+    }
+}
+
+function holdImageLabel() {
+    var imageLabel = this.children.tags("roundrect")[0];
+    imageLabel.style.top = this.scrollTop + labelTop + "px";
+}
+
+function changeLabelOpacity() {
+    if (!this.filters[1].status)
+        this.filters[0].Opacity = (event.type == "mouseover") ? 1 : 0.7;
+}
+
+function launchFile(file) {
+    if (event.shiftKey)
+        wshShell.Run('"' + file + '"');
+    else {
+        var parentFolder = fso.GetParentFolderName(file);
+        shell.Open(parentFolder);
+    }
+}
+
+function startModification() {
+    var arg = {
+        inputImageFile: document.mainForm.inputImage.value,
+        newAlpha: intAlpha.value,
+        initProgressStatus: function(progBarMax) {
+            progBar.Max = progBarMax;
+            progBar.Value = 0;
+            progPercent.innerText = "0%";
+        },
+        indicateProgress: function(i) {
+            progBar.Value = i;
+            var percent = i / progBar.Max * 100;
+            progPercent.innerText = Math.floor(percent) + "%";
+        },
+        indicateCompletion: function(outputImageFile) {
+            wshShell.Popup("The alpha modification has been successfully completed!", 0, "Image Alpha Changer", 64);
+            oif = outputImageFile;
+            
+            operationStatus.style.display = "none";
+            document.mainForm.style.display = "";
+            
+            displayOutputImage();
+        }
+    };
+    
+    if (!fso.FileExists(arg.inputImageFile)) {
+        alert("The file '" + arg.inputImageFile + "' does not exist.");
+        return;
+    }
+    
+    tmid = alphaChangerThread.start(arg);
+    
+    destroyOutputImage();
+    document.mainForm.style.display = "none";
+    operationStatus.style.display = "";
+}
+
+function abortModification() {
+    abortionRequest = true;
+    this.disabled = true;
+}
+
+function indicateAbortion() {
+    if (event.exitMode == TEM_EXEC_HALTED) {
+        abortionRequest = false;
+        btnAbort.disabled = false;
+        
+        operationStatus.style.display = "none";
+        document.mainForm.style.display = "";
+    }
+}
+</script>
+
+<t:thread id="alphaChangerThread" slanguage="jscript">
+<script>
+var EC_OPERATION_ABORTED = 1;
+var wiaFormatPNG = "{B96B3CAF-0728-11D3-9D7B-0000F81EF32E}";
+
+var imageFile = new ActiveXObject("WIA.ImageFile");
+imageFile.LoadFile(tparam.inputImageFile);
+
+if (window.abortionRequest)
+    threadc.exit(EC_OPERATION_ABORTED);
+
+var nPixels = imageFile.Width * imageFile.Height;
+tparam.initProgressStatus(nPixels);
+
+var vector = imageFile.ARGBData;
+var newAlpha = tparam.newAlpha;
+var currentProgress = 0;
+
+for (var i = 1;i <= nPixels;i++) {
+    var color = vector(i);
+    color = color & 0x00FFFFFF | (newAlpha << 24);
+    vector(i) = color;
+    
+    interactWithUI();
+}
+
+var fso = window.fso;
+var suggestion = getFileNameSuggestion();
+while (true) {
+    var outputImageFile = window.prompt("Enter the full name of the file in which to store the output image.", suggestion);
+    if (fso.FileExists(outputImageFile)) {
+        if (window.confirm("The file '" + outputImageFile + "' already exists. Do you want to replace it?")) {
+            fso.DeleteFile(outputImageFile);
+            break;
+        }
+    }
+    else
+        break;
+}
+
+if (window.abortionRequest)
+    threadc.exit(EC_OPERATION_ABORTED);
+
+var ip = new ActiveXObject("WIA.ImageProcess");
+ip.Filters.Add(ip.FilterInfos("ARGB").FilterID);
+ip.Filters(1).Properties("ARGBData") = vector;
+ip.Filters.Add(ip.FilterInfos("Convert").FilterID);
+ip.Filters(2).Properties("FormatID") = wiaFormatPNG;
+
+imageFile = ip.Apply(imageFile);
+imageFile.SaveFile(outputImageFile);
+
+tparam.indicateCompletion(outputImageFile);
+
+function interactWithUI() {
+    var progress = Math.floor(i / nPixels * 100);
+    if (progress > currentProgress) {
+        currentProgress = progress;
+        tparam.indicateProgress(i);
+        
+        if (window.abortionRequest)
+            threadc.exit(EC_OPERATION_ABORTED);
+    }
+}
+
+function getFileNameSuggestion() {
+    var filePath = tparam.inputImageFile;
+    var newFileName = "modified_" + (fso.GetBaseName(filePath)) + ".png";
+    return fso.BuildPath(fso.GetParentFolderName(filePath), newFileName);
+}
+</script>
+</t:thread>
+</head>
+<body scroll="auto" bgcolor="#ffffcc">
+<form name="mainForm" onsubmit="return false;">
+    <label for="fileInputImage">Image file:</label>
+    <input type="file" id="fileInputImage" name="inputImage"><br>
+    <label>Set Alpha to</label>
+    <fcontrol:intbox id="intAlpha" name="alpha" min="0" max="255" value="255" /><br>
+    <button name="btnModify">Modify</button>
+    <button type="reset" name="btnReset">Reset image</button>
+</form>
+
+<div id="operationStatus" style="display: none;">
+    <h1>Processing your image...</h1>
+    <object id="progBar" classid="clsid:35053A22-8589-11D1-B16A-00C0F0283628" style="width: 100%;"></object><br>
+    <center id="progPercent"></center>
+    <button id="btnAbort">Abort</button>
+</div>
+
+<center>
+    <div id="inputImageBox">
+        <v:image id="inputImageView" />
+        <v:roundrect id="inputImageLabel" class="ImageLabel" strokeweight="3px" strokecolor="black" fillcolor="#80ffff" arcsize="0.5" style="left: 115px; top: 340px; visibility: hidden;" title="Click here to open the containing folder of the image file. Shift+click to launch the file itself.">
+            <v:textbox>Input image</v:textbox>
+        </v:roundrect>
+    </div>
+    <div id="outputImageBox">
+        <v:image id="outputImageView" />
+        <v:roundrect id="outputImageLabel" class="ImageLabel" strokeweight="3px" strokecolor="black" fillcolor="#00ff80" arcsize="0.5" style="left: 115px; top: 340px; visibility: hidden;" title="Click here to open the containing folder of the image file. Shift+click to launch the file itself.">
+            <v:textbox>Output image</v:textbox>
+        </v:roundrect>
+    </div>
+</center>
+</body>
+</html>
