@@ -1,4 +1,4 @@
-﻿<package>
+<package>
     <job id="RunJSThread">
         <script language="JScript">
             // Taking a look at this code still reminds me of Omegastripes's post on Stack Overflow,
@@ -49,6 +49,7 @@
                 thread = threadsInfo(tmid);
                 tparam = thread.arg;
                 window = thread.element.document.parentWindow;
+                extern = new Function("varName", "this[varName] = window[varName];");
     
                 thread.script = this;
     
@@ -127,6 +128,7 @@
                 thread = threadsInfo(tmid);
                 tparam = thread.arg;
                 window = thread.element.document.parentWindow;
+                extern = new Function("varName", "this[varName] = window[varName];");
     
                 thread.script = this;
     
