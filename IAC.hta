@@ -1,7 +1,7 @@
 <html xmlns:t xmlns:fcontrol xmlns:v="urn:schemas-microsoft-com:vml">
 <head>
 <title>Image Alpha Changer</title>
-<hta:application applicationname="Image Alpha Changer" version="1.0" windowstate="maximize" />
+<hta:application applicationname="Image Alpha Changer" version="1.0" windowstate="maximize" icon="app_icon.ico" />
 
 <meta name="author" content="Javad Bayat">
 <meta http-equiv="content-type" content="text/html; charset = UTF-8">
@@ -212,7 +212,7 @@ function startModification() {
             progPercent.innerText = Math.floor(percent) + "%";
         },
         indicateCompletion: function(outputImageFile) {
-            wshShell.Popup("The alpha modification has been successfully completed!", 0, "Image Alpha Changer", 64);
+            //wshShell.Popup("The alpha modification has been successfully completed!", 0, "Image Alpha Changer", 64);
             oif = outputImageFile;
             
             operationStatus.style.display = "none";
@@ -276,7 +276,7 @@ for (var i = 1;i <= nPixels;i++) {
     interactWithUI();
 }
 
-var fso = window.fso;
+extern("fso");
 var suggestion = getFileNameSuggestion();
 while (true) {
     var outputImageFile = window.prompt("Enter the full name of the file in which to store the output image.", suggestion);
