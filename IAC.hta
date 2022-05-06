@@ -280,6 +280,10 @@ extern("fso");
 var suggestion = getFileNameSuggestion();
 while (true) {
     var outputImageFile = window.prompt("Enter the full name of the file in which to store the output image.", suggestion);
+    
+    if (!outputImageFile)
+        threadc.exit(EC_OPERATION_ABORTED);
+    
     if (fso.FileExists(outputImageFile)) {
         if (window.confirm("The file '" + outputImageFile + "' already exists. Do you want to replace it?")) {
             fso.DeleteFile(outputImageFile);
